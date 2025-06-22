@@ -36,3 +36,5 @@ export function DashboardLoading() {
     </div>
   )
 }
+
+export default DashboardLoading

@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String    @map("password_hash")
+  name           String
+  plan           String    @default("free")
+  monthlyUsage   Int       @default(0) @map("monthly_usage")
+  isActive       Boolean   @default(true) @map("is_active")
+  emailVerified  Boolean   @default(false) @map("email_verified")
+  lastLogin      DateTime? @map("last_login")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  podcasts     Podcast[]
+  liveSessions LiveSession[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Podcast {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  title        String
+  description  String?
+  audioUrl     String    @map("audio_url")
+  audioSize    Int?      @map("audio_size")
+  duration     Int
+  status       String    @default("uploading")
+  errorMessage String?   @map("error_message")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  factCheckResults FactCheckResult[]
+
+  @@map("podcasts")
+}
+
+model LiveSession {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  title     String
+  status    String   @default("active")
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  factCheckResults FactCheckResult[]
+
+  @@map("live_sessions")
+}
+
+model FactCheckResult {
+  id               String    @id @default(cuid())
+  sessionId        String?   @map("session_id")
+  podcastId        String?   @map("podcast_id")
+  segmentId        String?   @map("segment_id")
+  claim            String
+  verdict          String
+  confidence       Float
+  aiSummary        String?   @map("ai_summary")
+  processingTimeMs Int?      @map("processing_time_ms")
+  isFlagged        Boolean   @default(false) @map("is_flagged")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  liveSession  LiveSession?  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  podcast      Podcast?      @relation(fields: [podcastId], references: [id], onDelete: Cascade)
+  perspectives Perspective[]
+
+  @@map("fact_check_results")
+}
+
+model Source {
+  id               String   @id @default(cuid())
+  title            String
+  url              String   @unique
+  domain           String
+  sourceType       String   @map("source_type")
+  politicalLean    String   @default("unknown") @map("political_lean")
+  reliabilityScore Int      @default(50) @map("reliability_score")
+  isActive         Boolean  @default(true) @map("is_active")
+  lastVerified     DateTime @default(now()) @map("last_verified")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  // Relations
+  perspectives Perspective[]
+
+  @@map("sources")
+}
+
+model Perspective {
+  id             String  @id @default(cuid())
+  factCheckId    String  @map("fact_check_id")
+  sourceId       String  @map("source_id")
+  stance         String
+  explanation    String
+  relevanceScore Float   @map("relevance_score")
+  excerpt        String?
+
+  // Relations
+  factCheck FactCheckResult @relation(fields: [factCheckId], references: [id], onDelete: Cascade)
+  source    Source          @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@map("perspectives")
+}
+
+model AuditLog {
+  id           String    @id @default(cuid())
+  userId       String?   @map("user_id")
+  action       String
+  resourceType String    @map("resource_type")
+  resourceId   String?   @map("resource_id")
+  details      Json      @default("{}")
+  ipAddress    String?   @map("ip_address")
+  userAgent    String?   @map("user_agent")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  eventName  String   @map("event_name")
+  userId     String?  @map("user_id")
+  properties Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("analytics_events")
+}
+
+model PerformanceMetric {
+  id             String   @id @default(cuid())
+  endpoint       String
+  method         String
+  responseTimeMs Int      @map("response_time_ms")
+  statusCode     Int      @map("status_code")
+  userId         String?  @map("user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("performance_metrics")
+}

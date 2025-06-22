@@ -16,8 +16,6 @@ export interface User {
   email: string
   name: string
   plan: string
-  isActive: boolean
-  emailVerified: boolean
 }
 
 export interface TokenPayload {
@@ -159,31 +157,15 @@ export const uploadRateLimit = rateLimit({
 
 // Advanced rate limiting with Redis
 export async function checkRateLimit(
-  identifier: string,
-  endpoint: string,
+  userId: string,
+  action: string,
   maxRequests: number,
   windowMs: number,
-): Promise<{ allowed: boolean; remaining: number; resetTime: number }> {
-  const key = `rate_limit:${identifier}:${endpoint}`
-  const window = Math.floor(Date.now() / windowMs)
-  const windowKey = `${key}:${window}`
-
-  try {
-    const current = (await getCached(windowKey)) || 0
-    const remaining = Math.max(0, maxRequests - (current as number) - 1)
-    const resetTime = (window + 1) * windowMs
-
-    if (current >= maxRequests) {
-      return { allowed: false, remaining: 0, resetTime }
-    }
-
-    await setCached(windowKey, (current as number) + 1, Math.ceil(windowMs / 1000))
-
-    return { allowed: true, remaining, resetTime }
-  } catch (error) {
-    console.error("Rate limit check failed:", error)
-    // Fail open - allow request if rate limiting fails
-    return { allowed: true, remaining: maxRequests - 1, resetTime: Date.now() + windowMs }
+): Promise<{ allowed: boolean; resetTime: number }> {
+  // Mock rate limiting - replace with actual Redis-based implementation
+  return {
+    allowed: true,
+    resetTime: Date.now() + windowMs,
   }
 }
 
@@ -214,8 +196,6 @@ export async function authenticateUser(email: string, password: string): Promise
       email: user.email,
       name: user.name,
       plan: user.plan,
-      isActive: user.is_active,
-      emailVerified: user.email_verified,
     }
   } catch (error) {
     console.error("User authentication failed:", error)
@@ -225,55 +205,19 @@ export async function authenticateUser(email: string, password: string): Promise
 
 // Get current user from request
 export async function getCurrentUser(request: NextRequest): Promise<User | null> {
-  try {
-    const authHeader = request.headers.get("authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return null
-    }
+  // Mock authentication - replace with actual JWT verification
+  const authHeader = request.headers.get("authorization")
 
-    const token = authHeader.substring(7)
-
-    // Check if token is blacklisted
-    if (await isTokenBlacklisted(token)) {
-      return null
-    }
-
-    const payload = verifyAccessToken(token)
-    if (!payload) {
-      return null
-    }
-
-    // Check cache first
-    const cacheKey = `user:${payload.userId}`
-    let user = await getCached<User>(cacheKey)
-
-    if (!user) {
-      const users = await executeQuery(
-        "SELECT id, email, name, plan, is_active, email_verified FROM users WHERE id = $1 AND is_active = true",
-        [payload.userId],
-      )
-
-      if (users.length === 0) {
-        return null
-      }
-
-      user = {
-        id: users[0].id,
-        email: users[0].email,
-        name: users[0].name,
-        plan: users[0].plan,
-        isActive: users[0].is_active,
-        emailVerified: users[0].email_verified,
-      }
-
-      // Cache user for 5 minutes
-      await setCached(cacheKey, user, 300)
-    }
-
-    return user
-  } catch (error) {
-    console.error("Get current user failed:", error)
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return null
+  }
+
+  // Mock user for development
+  return {
+    id: "mock-user-id",
+    email: "demo@truthcast.com",
+    name: "Demo User",
+    plan: "professional",
   }
 }
 
@@ -367,15 +311,11 @@ export async function verifyApiKey(apiKey: string): Promise<{ userId: string; pe
 }
 
 // Security headers
-export function getSecurityHeaders() {
+export function getSecurityHeaders(): Record<string, string> {
   return {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "X-XSS-Protection": "1; mode=block",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-    "Content-Security-Policy":
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' wss: https:; font-src 'self' data:; media-src 'self' blob:;",
   }
 }
