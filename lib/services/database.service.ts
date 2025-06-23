@@ -1,124 +1,80 @@
-// Database service for TruthCast application
-interface User {
-  id: string
-  email: string
-  name: string
-  createdAt: Date
-}
+import { neon } from "@neondatabase/serverless"
 
-interface Podcast {
-  id: string
-  userId: string
-  title: string
-  description?: string
-  status: string
-  createdAt: Date
-}
+// Database connection
+const sql = neon(process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || "")
 
-interface FactCheck {
-  id: string
-  podcastId: string
-  claim: string
-  verdict: string
-  confidence: number
-  createdAt: Date
-}
-
+// Database service class
 class DatabaseService {
-  private users: User[] = []
-  private podcasts: Podcast[] = []
-  private factChecks: FactCheck[] = []
+  private sql = sql
 
-  async createUser(data: { email: string; name: string }): Promise<User> {
-    const user: User = {
-      id: `user_${Date.now()}`,
-      email: data.email,
-      name: data.name,
-      createdAt: new Date(),
-    }
-    this.users.push(user)
-    return user
-  }
-
-  async getUserByEmail(email: string): Promise<User | null> {
-    return this.users.find((u) => u.email === email) || null
-  }
-
-  async getUserById(id: string): Promise<User | null> {
-    return this.users.find((u) => u.id === id) || null
-  }
-
-  async createPodcast(data: {
-    userId: string
-    title: string
-    description?: string
-  }): Promise<Podcast> {
-    const podcast: Podcast = {
-      id: `podcast_${Date.now()}`,
-      userId: data.userId,
-      title: data.title,
-      description: data.description,
-      status: "processing",
-      createdAt: new Date(),
-    }
-    this.podcasts.push(podcast)
-    return podcast
-  }
-
-  async getPodcastsByUserId(userId: string): Promise<Podcast[]> {
-    return this.podcasts.filter((p) => p.userId === userId)
-  }
-
-  async getPodcastById(id: string): Promise<Podcast | null> {
-    return this.podcasts.find((p) => p.id === id) || null
-  }
-
-  async updatePodcastStatus(id: string, status: string): Promise<void> {
-    const podcast = this.podcasts.find((p) => p.id === id)
-    if (podcast) {
-      podcast.status = status
+  async query(text: string, params: any[] = []) {
+    try {
+      const result = await this.sql(text, params)
+      return result
+    } catch (error) {
+      console.error("Database query error:", error)
+      throw error
     }
   }
 
-  async createFactCheck(data: {
+  async getUser(id: string) {
+    const result = await this.query("SELECT * FROM users WHERE id = $1", [id])
+    return result[0] || null
+  }
+
+  async createUser(userData: { email: string; password: string; name?: string }) {
+    const { email, password, name } = userData
+    const result = await this.query(
+      "INSERT INTO users (email, password, name, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *",
+      [email, password, name || ""],
+    )
+    return result[0]
+  }
+
+  async getPodcast(id: string) {
+    const result = await this.query("SELECT * FROM podcasts WHERE id = $1", [id])
+    return result[0] || null
+  }
+
+  async createPodcast(podcastData: { title: string; userId: string; audioUrl?: string }) {
+    const { title, userId, audioUrl } = podcastData
+    const result = await this.query(
+      "INSERT INTO podcasts (title, user_id, audio_url, status, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING *",
+      [title, userId, audioUrl || "", "processing"],
+    )
+    return result[0]
+  }
+
+  async getFactChecks(podcastId: string) {
+    const result = await this.query("SELECT * FROM fact_checks WHERE podcast_id = $1", [podcastId])
+    return result
+  }
+
+  async createFactCheck(factCheckData: {
     podcastId: string
     claim: string
     verdict: string
     confidence: number
-  }): Promise<FactCheck> {
-    const factCheck: FactCheck = {
-      id: `fact_${Date.now()}`,
-      podcastId: data.podcastId,
-      claim: data.claim,
-      verdict: data.verdict,
-      confidence: data.confidence,
-      createdAt: new Date(),
-    }
-    this.factChecks.push(factCheck)
-    return factCheck
+    sources: string[]
+  }) {
+    const { podcastId, claim, verdict, confidence, sources } = factCheckData
+    const result = await this.query(
+      "INSERT INTO fact_checks (podcast_id, claim, verdict, confidence, sources, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *",
+      [podcastId, claim, verdict, confidence, JSON.stringify(sources)],
+    )
+    return result[0]
   }
 
-  async getFactChecksByPodcastId(podcastId: string): Promise<FactCheck[]> {
-    return this.factChecks.filter((fc) => fc.podcastId === podcastId)
-  }
-
-  async healthCheck(): Promise<boolean> {
-    return true
-  }
-
-  async getUserStats(userId: string) {
-    const userPodcasts = this.podcasts.filter((p) => p.userId === userId)
-    const userFactChecks = this.factChecks.filter((fc) => userPodcasts.some((p) => p.id === fc.podcastId))
-
-    return {
-      totalPodcasts: userPodcasts.length,
-      totalFactChecks: userFactChecks.length,
-      avgConfidence:
-        userFactChecks.length > 0
-          ? userFactChecks.reduce((sum, fc) => sum + fc.confidence, 0) / userFactChecks.length
-          : 0,
+  async healthCheck() {
+    try {
+      await this.query("SELECT 1")
+      return { status: "healthy", timestamp: new Date().toISOString() }
+    } catch (error) {
+      return { status: "unhealthy", error: error instanceof Error ? error.message : "Unknown error" }
     }
   }
 }
 
+// Export singleton instance
 export const db = new DatabaseService()
+export default db
