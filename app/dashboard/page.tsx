@@ -1,11 +1,5 @@
-import { Suspense } from "react"
-import ComprehensiveDashboard from "@/components/comprehensive-dashboard"
-import { DashboardLoading } from "@/components/dashboard-loading"
+import Dashboard from "@/components/dashboard"
 
 export default function DashboardPage() {
-  return (
-    <Suspense fallback={<DashboardLoading />}>
-      <ComprehensiveDashboard />
-    </Suspense>
-  )
+  return <Dashboard />
 }
