@@ -23,10 +23,7 @@ interface FactCheckResult {
 class FactCheckService {
   async checkFact(request: FactCheckRequest): Promise<FactCheckResult> {
     try {
-      // Simulate AI fact-checking process
-      const { claim, context } = request
-
-      // Mock fact-checking logic (replace with actual AI service)
+      const { claim } = request
       const mockResult = await this.simulateFactCheck(claim)
 
       return {
@@ -54,10 +51,8 @@ class FactCheckService {
     sources: Array<{ url: string; title: string; snippet: string; reliability: number }>
     explanation: string
   }> {
-    // Simulate processing delay
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, 500))
 
-    // Mock responses based on claim content
     if (claim.toLowerCase().includes("climate") || claim.toLowerCase().includes("temperature")) {
       return {
         verdict: "TRUE",
@@ -69,14 +64,8 @@ class FactCheckService {
             snippet: "Scientific evidence supports climate change claims",
             reliability: 0.98,
           },
-          {
-            url: "https://ipcc.ch",
-            title: "IPCC Report",
-            snippet: "Comprehensive climate data analysis",
-            reliability: 0.96,
-          },
         ],
-        explanation: "This claim is supported by multiple credible scientific sources including NASA and IPCC reports.",
+        explanation: "This claim is supported by multiple credible scientific sources.",
       }
     }
 
@@ -92,11 +81,10 @@ class FactCheckService {
             reliability: 0.85,
           },
         ],
-        explanation: "This claim contains elements of truth but may be oversimplified or lack important context.",
+        explanation: "This claim contains elements of truth but may be oversimplified.",
       }
     }
 
-    // Default response
     return {
       verdict: "UNVERIFIED",
       confidence: 0.45,
@@ -120,6 +108,5 @@ class FactCheckService {
   }
 }
 
-// Export singleton instance
 export const factCheckService = new FactCheckService()
 export default factCheckService

@@ -1,6 +1,4 @@
 import { db } from "./database.service"
-import bcrypt from "bcryptjs"
-import jwt from "jsonwebtoken"
 
 interface LoginRequest {
   email: string
@@ -26,15 +24,13 @@ interface AuthResult {
 }
 
 class AuthService {
-  private jwtSecret = process.env.JWT_SECRET || "fallback-secret-key"
-  private jwtRefreshSecret = process.env.JWT_REFRESH_SECRET || "fallback-refresh-secret"
+  private sessions: Map<string, string> = new Map() // token -> userId
 
   async register(request: RegisterRequest): Promise<AuthResult> {
     try {
       const { email, password, name } = request
 
-      // Check if user already exists
-      const existingUser = await this.getUserByEmail(email)
+      const existingUser = await db.getUserByEmail(email)
       if (existingUser) {
         return {
           success: false,
@@ -42,17 +38,15 @@ class AuthService {
         }
       }
 
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 12)
+      // Simple password hashing (not secure, for demo only)
+      const hashedPassword = this.simpleHash(password)
 
-      // Create user
       const user = await db.createUser({
         email,
         password: hashedPassword,
         name,
       })
 
-      // Generate tokens
       const token = this.generateToken(user.id)
       const refreshToken = this.generateRefreshToken(user.id)
 
@@ -79,8 +73,7 @@ class AuthService {
     try {
       const { email, password } = request
 
-      // Get user by email
-      const user = await this.getUserByEmail(email)
+      const user = await db.getUserByEmail(email)
       if (!user) {
         return {
           success: false,
@@ -88,16 +81,14 @@ class AuthService {
         }
       }
 
-      // Verify password
-      const isValidPassword = await bcrypt.compare(password, user.password)
-      if (!isValidPassword) {
+      const hashedPassword = this.simpleHash(password)
+      if (user.password !== hashedPassword) {
         return {
           success: false,
           error: "Invalid email or password",
         }
       }
 
-      // Generate tokens
       const token = this.generateToken(user.id)
       const refreshToken = this.generateRefreshToken(user.id)
 
@@ -122,10 +113,17 @@ class AuthService {
 
   async verifyToken(token: string): Promise<{ valid: boolean; userId?: string; error?: string }> {
     try {
-      const decoded = jwt.verify(token, this.jwtSecret) as { userId: string }
+      const userId = this.sessions.get(token)
+      if (!userId) {
+        return {
+          valid: false,
+          error: "Invalid token",
+        }
+      }
+
       return {
         valid: true,
-        userId: decoded.userId,
+        userId,
       }
     } catch (error) {
       return {
@@ -137,8 +135,15 @@ class AuthService {
 
   async refreshToken(refreshToken: string): Promise<{ success: boolean; token?: string; error?: string }> {
     try {
-      const decoded = jwt.verify(refreshToken, this.jwtRefreshSecret) as { userId: string }
-      const newToken = this.generateToken(decoded.userId)
+      const userId = this.sessions.get(refreshToken)
+      if (!userId) {
+        return {
+          success: false,
+          error: "Invalid refresh token",
+        }
+      }
+
+      const newToken = this.generateToken(userId)
 
       return {
         success: true,
@@ -153,21 +158,26 @@ class AuthService {
   }
 
   private generateToken(userId: string): string {
-    return jwt.sign({ userId }, this.jwtSecret, { expiresIn: process.env.JWT_EXPIRES_IN || "15m" })
+    const token = `token_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    this.sessions.set(token, userId)
+    return token
   }
 
   private generateRefreshToken(userId: string): string {
-    return jwt.sign({ userId }, this.jwtRefreshSecret, { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d" })
+    const token = `refresh_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    this.sessions.set(token, userId)
+    return token
   }
 
-  private async getUserByEmail(email: string) {
-    try {
-      const result = await db.query("SELECT * FROM users WHERE email = $1", [email])
-      return result[0] || null
-    } catch (error) {
-      console.error("Get user by email error:", error)
-      return null
+  private simpleHash(password: string): string {
+    // Simple hash function (not secure, for demo only)
+    let hash = 0
+    for (let i = 0; i < password.length; i++) {
+      const char = password.charCodeAt(i)
+      hash = (hash << 5) - hash + char
+      hash = hash & hash // Convert to 32bit integer
     }
+    return hash.toString()
   }
 
   async getCurrentUser(userId: string) {
@@ -187,6 +197,5 @@ class AuthService {
   }
 }
 
-// Export singleton instance
 export const authService = new AuthService()
 export default authService

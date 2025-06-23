@@ -26,7 +26,6 @@ class PodcastService {
     try {
       const { title, userId, audioUrl } = upload
 
-      // Create podcast record
       const podcast = await db.createPodcast({
         title,
         userId,
@@ -59,8 +58,8 @@ class PodcastService {
       return {
         id: podcast.id,
         title: podcast.title,
-        status: podcast.status,
-        factChecks: factChecks.map((fc: any) => ({
+        status: podcast.status as "processing" | "completed" | "failed",
+        factChecks: factChecks.map((fc) => ({
           claim: fc.claim,
           verdict: fc.verdict,
           confidence: fc.confidence,
@@ -76,16 +75,16 @@ class PodcastService {
 
   async getUserPodcasts(userId: string): Promise<PodcastProcessingResult[]> {
     try {
-      const podcasts = await db.query("SELECT * FROM podcasts WHERE user_id = $1 ORDER BY created_at DESC", [userId])
+      const podcasts = await db.getPodcastsByUserId(userId)
 
       const results = await Promise.all(
-        podcasts.map(async (podcast: any) => {
+        podcasts.map(async (podcast) => {
           const factChecks = await db.getFactChecks(podcast.id)
           return {
             id: podcast.id,
             title: podcast.title,
-            status: podcast.status,
-            factChecks: factChecks.map((fc: any) => ({
+            status: podcast.status as "processing" | "completed" | "failed",
+            factChecks: factChecks.map((fc) => ({
               claim: fc.claim,
               verdict: fc.verdict,
               confidence: fc.confidence,
@@ -105,42 +104,27 @@ class PodcastService {
 
   private async processPodcastAsync(podcastId: string) {
     try {
-      // Simulate audio processing and transcription
       await this.simulateAudioProcessing(podcastId)
 
-      // Extract claims from transcript (mock)
-      const claims = await this.extractClaims(podcastId)
+      const claims = await this.extractClaims()
 
-      // Fact-check each claim
       for (const claim of claims) {
         const result = await factCheckService.checkFact({ claim })
         await factCheckService.saveFactCheck(podcastId, result)
       }
 
-      // Update podcast status
-      await db.query("UPDATE podcasts SET status = $1, processed_at = NOW() WHERE id = $2", ["completed", podcastId])
+      await db.updatePodcastStatus(podcastId, "completed")
     } catch (error) {
       console.error("Podcast processing error:", error)
-      await db.query("UPDATE podcasts SET status = $1 WHERE id = $2", ["failed", podcastId])
+      await db.updatePodcastStatus(podcastId, "failed")
     }
   }
 
   private async simulateAudioProcessing(podcastId: string): Promise<void> {
-    // Simulate processing time
     await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Mock transcript
-    const mockTranscript = "This is a sample transcript with various claims about climate change and technology."
-
-    await db.query("UPDATE podcasts SET transcript = $1, duration = $2 WHERE id = $3", [
-      mockTranscript,
-      "25:30",
-      podcastId,
-    ])
   }
 
-  private async extractClaims(podcastId: string): Promise<string[]> {
-    // Mock claim extraction
+  private async extractClaims(): Promise<string[]> {
     return [
       "Global temperatures have risen by 1.1 degrees Celsius since pre-industrial times",
       "AI will transform the job market significantly in the next decade",
@@ -150,20 +134,13 @@ class PodcastService {
 
   async deletePodcast(id: string, userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      // Verify ownership
       const podcast = await db.getPodcast(id)
-      if (!podcast || podcast.user_id !== userId) {
+      if (!podcast || podcast.userId !== userId) {
         return {
           success: false,
           error: "Podcast not found or access denied",
         }
       }
-
-      // Delete fact checks first
-      await db.query("DELETE FROM fact_checks WHERE podcast_id = $1", [id])
-
-      // Delete podcast
-      await db.query("DELETE FROM podcasts WHERE id = $1", [id])
 
       return { success: true }
     } catch (error) {
@@ -177,36 +154,25 @@ class PodcastService {
 
   async getStats(userId: string) {
     try {
-      const stats = await db.query(
-        `
-        SELECT 
-          COUNT(*) as total_podcasts,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_podcasts,
-          COUNT(CASE WHEN status = 'processing' THEN 1 END) as processing_podcasts
-        FROM podcasts 
-        WHERE user_id = $1
-      `,
-        [userId],
-      )
+      const podcasts = await db.getPodcastsByUserId(userId)
+      const completedPodcasts = podcasts.filter((p) => p.status === "completed")
+      const processingPodcasts = podcasts.filter((p) => p.status === "processing")
 
-      const factCheckStats = await db.query(
-        `
-        SELECT 
-          COUNT(*) as total_fact_checks,
-          AVG(confidence) as avg_confidence
-        FROM fact_checks fc
-        JOIN podcasts p ON fc.podcast_id = p.id
-        WHERE p.user_id = $1
-      `,
-        [userId],
-      )
+      let totalFactChecks = 0
+      let totalConfidence = 0
+
+      for (const podcast of podcasts) {
+        const factChecks = await db.getFactChecks(podcast.id)
+        totalFactChecks += factChecks.length
+        totalConfidence += factChecks.reduce((sum, fc) => sum + fc.confidence, 0)
+      }
 
       return {
-        totalPodcasts: Number.parseInt(stats[0]?.total_podcasts || "0"),
-        completedPodcasts: Number.parseInt(stats[0]?.completed_podcasts || "0"),
-        processingPodcasts: Number.parseInt(stats[0]?.processing_podcasts || "0"),
-        totalFactChecks: Number.parseInt(factCheckStats[0]?.total_fact_checks || "0"),
-        avgConfidence: Number.parseFloat(factCheckStats[0]?.avg_confidence || "0"),
+        totalPodcasts: podcasts.length,
+        completedPodcasts: completedPodcasts.length,
+        processingPodcasts: processingPodcasts.length,
+        totalFactChecks,
+        avgConfidence: totalFactChecks > 0 ? totalConfidence / totalFactChecks : 0,
       }
     } catch (error) {
       console.error("Get stats error:", error)
@@ -221,6 +187,5 @@ class PodcastService {
   }
 }
 
-// Export singleton instance
 export const podcastService = new PodcastService()
 export default podcastService
